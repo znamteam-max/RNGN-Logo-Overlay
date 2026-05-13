@@ -1,2 +1,5 @@
-from logo_bot.webhook import WebhookHandler as handler
+from logo_bot.webhook import WebhookHandler
 
+
+class handler(WebhookHandler):
+    pass
