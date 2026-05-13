@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "api/webhook.py": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/health.py": {
+      "maxDuration": 10
+    }
+  }
+}
+
