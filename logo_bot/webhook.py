@@ -5,7 +5,7 @@ import mimetypes
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from .config import BOT_TOKEN, MAX_INPUT_MB, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, get_channel
+from .config import BOT_TOKEN, MAX_INPUT_MB, OUTPUT_FORMAT, OUTPUT_QUALITY, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, get_channel
 from .image_processing import render_overlay
 from .keyboards import again_menu, channel_label, channel_menu, side_label, side_menu
 from .state_store import get_state_store, new_record_id
@@ -200,6 +200,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "service": "logo-overlay-bot",
                 "token_configured": bool(BOT_TOKEN),
+                "output_format": OUTPUT_FORMAT,
+                "output_quality": OUTPUT_QUALITY,
+                "max_input_mb": MAX_INPUT_MB,
             },
         )
 
