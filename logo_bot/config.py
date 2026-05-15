@@ -13,9 +13,11 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
 MAX_INPUT_MB = int(os.getenv("MAX_INPUT_MB", "20"))
 MAX_INPUT_BYTES = MAX_INPUT_MB * 1024 * 1024
-OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "JPEG").strip().upper()
-OUTPUT_QUALITY = int(os.getenv("OUTPUT_QUALITY", "95"))
+OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "PNG").strip().upper()
+OUTPUT_QUALITY = int(os.getenv("OUTPUT_QUALITY", "100"))
+JPEG_SUBSAMPLING = int(os.getenv("JPEG_SUBSAMPLING", "0"))
 STATE_TTL_SECONDS = int(os.getenv("STATE_TTL_SECONDS", "3600"))
+TOO_LARGE_MESSAGE = f"Файл слишком большой, уменьшите до {MAX_INPUT_MB} МБ и загрузите заново."
 
 
 @dataclass(frozen=True)
@@ -63,4 +65,3 @@ def output_extension_and_mime() -> tuple[str, str]:
     if OUTPUT_FORMAT == "PNG":
         return "png", "image/png"
     return "jpg", "image/jpeg"
-

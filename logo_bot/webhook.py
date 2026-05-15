@@ -5,7 +5,7 @@ import mimetypes
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from .config import BOT_TOKEN, MAX_INPUT_MB, WEBHOOK_SECRET, get_channel
+from .config import BOT_TOKEN, MAX_INPUT_MB, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, get_channel
 from .image_processing import render_overlay
 from .keyboards import again_menu, channel_label, channel_menu, side_label, side_menu
 from .state_store import get_state_store, new_record_id
@@ -74,7 +74,7 @@ def _handle_message(message: dict[str, Any], tg: TelegramClient) -> None:
         tg.send_message(chat_id, "Не смог прочитать файл. Попробуй отправить фото еще раз.")
         return
     if file_size and file_size > MAX_INPUT_MB * 1024 * 1024:
-        tg.send_message(chat_id, f"Файл больше {MAX_INPUT_MB} MB. Пришли версию легче.")
+        tg.send_message(chat_id, TOO_LARGE_MESSAGE)
         return
 
     record_id = new_record_id()
@@ -180,7 +180,7 @@ def _handle_callback(callback: dict[str, Any], tg: TelegramClient) -> None:
         print(f"[callback] telegram error: {exc}")
         tg.answer_callback_query(query_id, "Не смог обработать запрос", show_alert=True)
         try:
-            tg.send_message(chat_id, f"Ошибка: {exc}")
+            tg.send_message(chat_id, str(exc))
         except Exception:
             pass
     except Exception as exc:
@@ -227,4 +227,3 @@ class WebhookHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             print(f"[webhook] fatal: {exc}")
             _json_response(self, {"ok": True})
-

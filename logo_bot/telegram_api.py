@@ -5,7 +5,7 @@ from typing import Any
 
 import requests
 
-from .config import BOT_TOKEN, MAX_INPUT_BYTES
+from .config import BOT_TOKEN, MAX_INPUT_BYTES, TOO_LARGE_MESSAGE
 
 
 class TelegramError(RuntimeError):
@@ -33,6 +33,9 @@ class TelegramClient:
         except ValueError as exc:
             raise TelegramError(f"Telegram returned non-JSON response for {method}") from exc
         if not response.ok or not data.get("ok"):
+            description = str(data.get("description") or "").lower()
+            if "file is too big" in description or "too big" in description:
+                raise TelegramError(TOO_LARGE_MESSAGE)
             raise TelegramError(f"Telegram {method} failed: {data}")
         return data
 
@@ -96,13 +99,13 @@ class TelegramClient:
         info = self.get_file(file_id)
         file_size = int(info.get("file_size") or 0)
         if file_size and file_size > MAX_INPUT_BYTES:
-            raise TelegramError("Файл слишком большой для обработки ботом.")
+            raise TelegramError(TOO_LARGE_MESSAGE)
 
         response = requests.get(f"{self.file_base}/{info['file_path']}", timeout=60)
         response.raise_for_status()
         content = response.content
         if len(content) > MAX_INPUT_BYTES:
-            raise TelegramError("Файл слишком большой для обработки ботом.")
+            raise TelegramError(TOO_LARGE_MESSAGE)
         return content
 
     def send_document(
@@ -121,4 +124,3 @@ class TelegramClient:
             data["caption"] = caption
         files = {"document": (filename, content, mime_type)}
         self._request_json("sendDocument", data=data, files=files)
-

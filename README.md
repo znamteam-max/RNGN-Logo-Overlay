@@ -32,9 +32,13 @@
 
 Опциональные:
 
-- `OUTPUT_FORMAT=JPEG` или `PNG`
-- `OUTPUT_QUALITY=95`
+- `OUTPUT_FORMAT=PNG` или `JPEG`
+- `OUTPUT_QUALITY=100`
+- `JPEG_SUBSAMPLING=0`
 - `MAX_INPUT_MB=20`
+
+`MAX_INPUT_MB=20` - верхняя граница для входящего файла: Telegram Bot API не дает боту скачать файл больше 20 MB через `getFile`.
+По умолчанию результат сохраняется в PNG без JPEG-пережатия. Если нужен именно JPEG, он сохраняется с качеством 100, sRGB ICC-профилем и без цветовой субдискретизации (`JPEG_SUBSAMPLING=0`).
 
 ## Деплой на Vercel
 
