@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import BOT_TOKEN, MAX_INPUT_MB, OUTPUT_FORMAT, OUTPUT_QUALITY, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, get_channel
 from .image_processing import render_overlay
-from .keyboards import again_menu, channel_label, channel_menu, side_label, side_menu
+from .keyboards import again_menu, channel_label, channel_menu, option_label, option_menu
 from .state_store import get_state_store, new_record_id
 from .telegram_api import TelegramClient, TelegramError
 
@@ -47,7 +47,7 @@ def _extract_image_file(message: dict[str, Any]) -> tuple[str, int, bool] | None
 def _help_text() -> str:
     return (
         "Пришли фото файлом без сжатия: скрепка → Файл. "
-        "После загрузки выбери канал и сторону логотипа.\n\n"
+        "После загрузки выбери канал и вариант логотипа.\n\n"
         f"Сейчас бот принимает файлы до {MAX_INPUT_MB} MB и приводит результат к 4:5."
     )
 
@@ -113,17 +113,17 @@ def _handle_channel_choice(chat_id: int, message_id: int, record_id: str, channe
     tg.edit_message_text(
         chat_id,
         message_id,
-        f"{channel.label}: выбери сторону логотипа.",
-        reply_markup=side_menu(record_id, channel_key),
+        f"{channel.label}: выбери вариант логотипа.",
+        reply_markup=option_menu(record_id, channel_key),
     )
 
 
-def _handle_position_choice(
+def _handle_option_choice(
     chat_id: int,
     message_id: int,
     record_id: str,
     channel_key: str,
-    side: str,
+    option_key: str,
     tg: TelegramClient,
 ) -> None:
     record = get_state_store().get(f"upload:{record_id}")
@@ -136,16 +136,17 @@ def _handle_position_choice(
         tg.edit_message_text(chat_id, message_id, "Этот логотип пока недоступен.", reply_markup=channel_menu(record_id))
         return
 
-    overlay_path = channel.logo_path(side)
-    if side not in {"left", "right"} or not overlay_path.exists():
-        tg.edit_message_text(chat_id, message_id, "Не нашел логотип для этой стороны.", reply_markup=side_menu(record_id, channel_key))
+    option = channel.logo_option(option_key)
+    overlay_path = option.path if option else None
+    if not option or not overlay_path.exists():
+        tg.edit_message_text(chat_id, message_id, "Не нашел такой вариант логотипа.", reply_markup=option_menu(record_id, channel_key))
         return
 
     tg.edit_message_text(chat_id, message_id, "Генерирую картинку...")
     source = tg.download_file(str(record["file_id"]))
     result, ext, mime = render_overlay(source, overlay_path)
-    filename = f"{channel_key}_{side}_4x5.{ext}"
-    caption = f"Готово: {channel_label(channel_key)}, {side_label(side)}"
+    filename = f"{channel_key}_{option_key}_4x5.{ext}"
+    caption = f"Готово: {channel_label(channel_key)}, {option_label(channel_key, option_key)}"
     tg.send_document(chat_id, result, filename, mime, caption=caption)
     tg.send_message(chat_id, "Можно сделать еще один вариант с этим же фото.", reply_markup=again_menu(record_id))
 
@@ -172,7 +173,7 @@ def _handle_callback(callback: dict[str, Any], tg: TelegramClient) -> None:
 
         if parts[0] == "pos" and len(parts) == 4:
             tg.answer_callback_query(query_id, "Готовлю картинку...")
-            _handle_position_choice(chat_id, message_id, parts[1], parts[2], parts[3], tg)
+            _handle_option_choice(chat_id, message_id, parts[1], parts[2], parts[3], tg)
             return
 
         tg.answer_callback_query(query_id, "Не понял действие", show_alert=True)

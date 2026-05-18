@@ -36,9 +36,9 @@ def main() -> None:
         if not channel.is_ready:
             print(f"skip {channel.key}: missing logo")
             continue
-        for side in ("left", "right"):
-            content, ext, _mime = render_overlay(sample, channel.logo_path(side))
-            output = TMP / f"{channel.key}_{side}.{ext}"
+        for option in channel.options:
+            content, ext, _mime = render_overlay(sample, option.path)
+            output = TMP / f"{channel.key}_{option.key}.{ext}"
             output.write_bytes(content)
             print(output)
 

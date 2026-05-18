@@ -21,39 +21,81 @@ TOO_LARGE_MESSAGE = f"Файл слишком большой, уменьшите
 
 
 @dataclass(frozen=True)
+class LogoOption:
+    key: str
+    label: str
+    filename: str
+
+    @property
+    def path(self) -> Path:
+        return LOGO_DIR / self.filename
+
+
+@dataclass(frozen=True)
 class Channel:
     key: str
     label: str
-    left_logo: str
-    right_logo: str
+    options: tuple[LogoOption, ...]
 
-    def logo_path(self, side: str) -> Path:
-        if side == "left":
-            return LOGO_DIR / self.left_logo
-        if side == "right":
-            return LOGO_DIR / self.right_logo
-        raise ValueError(f"Unsupported side: {side}")
+    def logo_option(self, option_key: str) -> LogoOption | None:
+        for option in self.options:
+            if option.key == option_key:
+                return option
+        return None
+
+    def logo_path(self, option_key: str) -> Path:
+        option = self.logo_option(option_key)
+        if option:
+            return option.path
+        raise ValueError(f"Unsupported logo option: {option_key}")
 
     @property
     def is_ready(self) -> bool:
-        return self.logo_path("left").exists() and self.logo_path("right").exists()
+        return all(option.path.exists() for option in self.options)
 
 
 CHANNELS: dict[str, Channel] = {
-    "sportcore": Channel("sportcore", "Sportcore", "sportcore_left.png", "sportcore_right.png"),
+    "sportcore": Channel(
+        "sportcore",
+        "Sportcore",
+        (
+            LogoOption("left", "Слева", "sportcore_left.png"),
+            LogoOption("right", "Справа", "sportcore_right.png"),
+        ),
+    ),
     "sportcorefinds": Channel(
         "sportcorefinds",
         "Sportcore Finds",
-        "sportcorefinds_left.png",
-        "sportcorefinds_right.png",
+        (
+            LogoOption("left", "Слева", "sportcorefinds_left.png"),
+            LogoOption("right", "Справа", "sportcorefinds_right.png"),
+        ),
     ),
-    "musiccore": Channel("musiccore", "Music Core", "musiccore_left.png", "musiccore_right.png"),
-    "bolshe": Channel("bolshe", "Больше", "bolshe_left.png", "bolshe_right.png"),
-}
-
-SIDES = {
-    "left": "слева",
-    "right": "справа",
+    "musiccore": Channel(
+        "musiccore",
+        "Music Core",
+        (
+            LogoOption("left", "Слева", "musiccore_left.png"),
+            LogoOption("right", "Справа", "musiccore_right.png"),
+        ),
+    ),
+    "bolshe": Channel(
+        "bolshe",
+        "Больше",
+        (
+            LogoOption("purple", "Фиолетовый", "bolshe_purple.png"),
+            LogoOption("yellow", "Желтый", "bolshe_yellow.png"),
+            LogoOption("white", "Белый", "bolshe_white.png"),
+        ),
+    ),
+    "homeofhockey": Channel(
+        "homeofhockey",
+        "Home of Hockey",
+        (
+            LogoOption("winline", "Винлайн", "home_of_hockey_winline.png"),
+            LogoOption("fonbet", "Фонбет", "home_of_hockey_fonbet.png"),
+        ),
+    ),
 }
 
 
