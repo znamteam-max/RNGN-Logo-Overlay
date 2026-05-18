@@ -24,10 +24,13 @@ class TelegramClient:
     def file_base(self) -> str:
         return f"https://api.telegram.org/file/bot{self.token}"
 
-    def _request_json(self, method: str, **kwargs: Any) -> dict[str, Any]:
+    def _request_json(self, method: str, request_timeout: int = 60, **kwargs: Any) -> dict[str, Any]:
         if not self.token:
             raise TelegramError("TELEGRAM_BOT_TOKEN is not configured")
-        response = requests.post(f"{self.api_base}/{method}", timeout=30, **kwargs)
+        try:
+            response = requests.post(f"{self.api_base}/{method}", timeout=request_timeout, **kwargs)
+        except requests.RequestException as exc:
+            raise TelegramError(f"Telegram {method} request failed: {exc}") from exc
         try:
             data = response.json()
         except ValueError as exc:
@@ -101,8 +104,11 @@ class TelegramClient:
         if file_size and file_size > MAX_INPUT_BYTES:
             raise TelegramError(TOO_LARGE_MESSAGE)
 
-        response = requests.get(f"{self.file_base}/{info['file_path']}", timeout=60)
-        response.raise_for_status()
+        try:
+            response = requests.get(f"{self.file_base}/{info['file_path']}", timeout=90)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise TelegramError(f"Telegram file download failed: {exc}") from exc
         content = response.content
         if len(content) > MAX_INPUT_BYTES:
             raise TelegramError(TOO_LARGE_MESSAGE)
@@ -123,4 +129,4 @@ class TelegramClient:
         if caption:
             data["caption"] = caption
         files = {"document": (filename, content, mime_type)}
-        self._request_json("sendDocument", data=data, files=files)
+        self._request_json("sendDocument", request_timeout=120, data=data, files=files)

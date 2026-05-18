@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import traceback
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
@@ -186,9 +187,13 @@ def _handle_callback(callback: dict[str, Any], tg: TelegramClient) -> None:
             pass
     except Exception as exc:
         print(f"[callback] failed: {exc}")
+        traceback.print_exc()
         tg.answer_callback_query(query_id, "Ошибка обработки", show_alert=True)
         try:
-            tg.send_message(chat_id, "Не получилось собрать картинку. Пришли фото еще раз.")
+            details = f"{type(exc).__name__}: {exc}"
+            if BOT_TOKEN:
+                details = details.replace(BOT_TOKEN, "[token]")
+            tg.send_message(chat_id, f"Не получилось собрать картинку. Пришли фото еще раз.\n\nТехническая причина: {details[:700]}")
         except Exception:
             pass
 
