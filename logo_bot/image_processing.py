@@ -51,16 +51,29 @@ def _normalize_to_srgb(image: Image.Image) -> Image.Image:
     return image.convert("RGBA")
 
 
+def _place_overlay(overlay: Image.Image, target_size: tuple[int, int]) -> Image.Image:
+    target_w, target_h = target_size
+    scale = min(1.0, target_w / overlay.width, target_h / overlay.height)
+    if scale < 1.0:
+        resized_size = (
+            max(1, round(overlay.width * scale)),
+            max(1, round(overlay.height * scale)),
+        )
+        overlay = overlay.resize(resized_size, Image.Resampling.LANCZOS)
+
+    canvas = Image.new("RGBA", target_size, (0, 0, 0, 0))
+    position = ((target_w - overlay.width) // 2, target_h - overlay.height)
+    canvas.alpha_composite(overlay, position)
+    return canvas
+
+
 def render_overlay(source_bytes: bytes, overlay_path: Path) -> tuple[bytes, str, str]:
     with Image.open(BytesIO(source_bytes)) as source:
         source = ImageOps.exif_transpose(source)
         base = _cover_crop(_normalize_to_srgb(source), OUTPUT_SIZE)
 
     with Image.open(overlay_path) as overlay:
-        overlay = overlay.convert("RGBA")
-        if overlay.size != OUTPUT_SIZE:
-            overlay = overlay.resize(OUTPUT_SIZE, Image.Resampling.LANCZOS)
-
+        overlay = _place_overlay(overlay.convert("RGBA"), OUTPUT_SIZE)
         base.alpha_composite(overlay)
 
     ext, mime = output_extension_and_mime()
