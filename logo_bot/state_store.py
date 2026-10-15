@@ -14,6 +14,20 @@ def new_record_id() -> str:
     return secrets.token_urlsafe(9)
 
 
+def _decode_json(raw: Any) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    if not isinstance(raw, str):
+        return None
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 @dataclass
 class StoredRecord:
     value: dict[str, Any]
@@ -21,8 +35,14 @@ class StoredRecord:
 
 
 class MemoryStateStore:
+    """Per-instance fallback. Hash records never expire, but die with the instance."""
+
+    backend = "memory"
+    persistent = False
+
     def __init__(self) -> None:
         self._items: dict[str, StoredRecord] = {}
+        self._hashes: dict[str, dict[str, dict[str, Any]]] = {}
 
     def set(self, key: str, value: dict[str, Any], ttl: int = STATE_TTL_SECONDS) -> None:
         self._items[key] = StoredRecord(value=value, expires_at=time.time() + ttl)
@@ -36,8 +56,23 @@ class MemoryStateStore:
             return None
         return item.value
 
+    def delete(self, key: str) -> None:
+        self._items.pop(key, None)
+
+    def hset(self, name: str, field: str, value: dict[str, Any]) -> None:
+        self._hashes.setdefault(name, {})[field] = json.loads(json.dumps(value))
+
+    def hget(self, name: str, field: str) -> dict[str, Any] | None:
+        return self._hashes.get(name, {}).get(field)
+
+    def hgetall(self, name: str) -> dict[str, dict[str, Any]]:
+        return dict(self._hashes.get(name, {}))
+
 
 class UpstashStateStore:
+    backend = "redis"
+    persistent = True
+
     def __init__(self, url: str, token: str) -> None:
         from upstash_redis import Redis
 
@@ -47,18 +82,27 @@ class UpstashStateStore:
         self.redis.set(key, json.dumps(value, ensure_ascii=False), ex=ttl)
 
     def get(self, key: str) -> dict[str, Any] | None:
-        raw = self.redis.get(key)
-        if not raw:
-            return None
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
-        if not isinstance(raw, str):
-            return None
-        try:
-            value = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        return value if isinstance(value, dict) else None
+        return _decode_json(self.redis.get(key))
+
+    def delete(self, key: str) -> None:
+        self.redis.delete(key)
+
+    def hset(self, name: str, field: str, value: dict[str, Any]) -> None:
+        self.redis.hset(name, field, json.dumps(value, ensure_ascii=False))
+
+    def hget(self, name: str, field: str) -> dict[str, Any] | None:
+        return _decode_json(self.redis.hget(name, field))
+
+    def hgetall(self, name: str) -> dict[str, dict[str, Any]]:
+        raw = self.redis.hgetall(name) or {}
+        result: dict[str, dict[str, Any]] = {}
+        for field, value in raw.items():
+            if isinstance(field, bytes):
+                field = field.decode("utf-8")
+            decoded = _decode_json(value)
+            if decoded is not None:
+                result[str(field)] = decoded
+        return result
 
 
 _memory_store = MemoryStateStore()
@@ -79,4 +123,3 @@ def get_state_store() -> MemoryStateStore | UpstashStateStore:
         except Exception as exc:
             print(f"[state] Upstash unavailable, using memory fallback: {exc}")
     return _memory_store
-

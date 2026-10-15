@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,6 +68,13 @@ class TelegramClient:
         except TelegramError as exc:
             print(f"[tg] editMessageText ignored: {exc}")
 
+    def remove_reply_markup(self, chat_id: int, message_id: int) -> None:
+        payload = {"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}}
+        try:
+            self._request_json("editMessageReplyMarkup", json=payload)
+        except TelegramError as exc:
+            print(f"[tg] editMessageReplyMarkup ignored: {exc}")
+
     def answer_callback_query(
         self,
         callback_query_id: str,
@@ -85,6 +93,9 @@ class TelegramClient:
         commands = [
             {"command": "start", "description": "инструкция"},
             {"command": "help", "description": "инструкция"},
+            {"command": "newproject", "description": "добавить проект с логотипами"},
+            {"command": "deleteproject", "description": "удалить проект"},
+            {"command": "cancel", "description": "отменить добавление проекта"},
         ]
         try:
             self._request_json("setMyCommands", json={"commands": commands})
@@ -130,3 +141,19 @@ class TelegramClient:
             data["caption"] = caption
         files = {"document": (filename, content, mime_type)}
         self._request_json("sendDocument", request_timeout=120, data=data, files=files)
+
+    def send_photo(
+        self,
+        chat_id: int,
+        content: bytes,
+        filename: str,
+        caption: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None:
+        data: dict[str, Any] = {"chat_id": str(chat_id)}
+        if caption:
+            data["caption"] = caption
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        files = {"photo": (filename, content, "image/jpeg")}
+        self._request_json("sendPhoto", request_timeout=120, data=data, files=files)

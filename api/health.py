@@ -15,6 +15,12 @@ class handler(BaseHTTPRequestHandler):
             "output_quality": OUTPUT_QUALITY,
             "max_input_mb": MAX_INPUT_MB,
         }
+        try:
+            from logo_bot.projects import storage_status
+
+            payload.update(storage_status())
+        except Exception as exc:
+            payload["storage_error"] = type(exc).__name__
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")

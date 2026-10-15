@@ -17,6 +17,9 @@ OUTPUT_FORMAT = os.getenv("OUTPUT_FORMAT", "PNG").strip().upper()
 OUTPUT_QUALITY = int(os.getenv("OUTPUT_QUALITY", "100"))
 JPEG_SUBSAMPLING = int(os.getenv("JPEG_SUBSAMPLING", "0"))
 STATE_TTL_SECONDS = int(os.getenv("STATE_TTL_SECONDS", "3600"))
+MAX_PROJECT_OPTIONS = 8
+MAX_PROJECT_LABEL = 40
+MAX_OPTION_LABEL = 30
 TOO_LARGE_MESSAGE = f"Файл слишком большой, уменьшите до {MAX_INPUT_MB} МБ и загрузите заново."
 
 
@@ -24,11 +27,19 @@ TOO_LARGE_MESSAGE = f"Файл слишком большой, уменьшите
 class LogoOption:
     key: str
     label: str
-    filename: str
+    filename: str = ""
+    # Logos added through the bot live in Telegram, not in assets/logos.
+    file_id: str = ""
 
     @property
     def path(self) -> Path:
         return LOGO_DIR / self.filename
+
+    @property
+    def is_available(self) -> bool:
+        if self.file_id:
+            return True
+        return bool(self.filename) and self.path.is_file()
 
 
 @dataclass(frozen=True)
@@ -36,6 +47,7 @@ class Channel:
     key: str
     label: str
     options: tuple[LogoOption, ...]
+    custom: bool = False
 
     def logo_option(self, option_key: str) -> LogoOption | None:
         for option in self.options:
@@ -51,7 +63,7 @@ class Channel:
 
     @property
     def is_ready(self) -> bool:
-        return all(option.path.exists() for option in self.options)
+        return bool(self.options) and all(option.is_available for option in self.options)
 
 
 CHANNELS: dict[str, Channel] = {
@@ -97,10 +109,6 @@ CHANNELS: dict[str, Channel] = {
         ),
     ),
 }
-
-
-def get_channel(key: str) -> Channel | None:
-    return CHANNELS.get(key)
 
 
 def output_extension_and_mime() -> tuple[str, str]:

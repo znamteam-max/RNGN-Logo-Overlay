@@ -1,15 +1,70 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageCms, ImageOps
+from PIL import Image, ImageCms, ImageDraw, ImageOps
 
 from .config import JPEG_SUBSAMPLING, OUTPUT_FORMAT, OUTPUT_QUALITY, OUTPUT_SIZE, output_extension_and_mime
 
 
 SRGB_PROFILE = ImageCms.createProfile("sRGB")
 SRGB_PROFILE_BYTES = ImageCms.ImageCmsProfile(SRGB_PROFILE).tobytes()
+
+
+class LogoError(ValueError):
+    """User-facing reason why an uploaded logo can't be used."""
+
+
+@dataclass(frozen=True)
+class LogoInfo:
+    width: int
+    height: int
+
+    @property
+    def is_4x5(self) -> bool:
+        return abs(self.width / self.height - 0.8) < 0.01
+
+
+def validate_logo(data: bytes) -> LogoInfo:
+    try:
+        with Image.open(BytesIO(data)) as image:
+            image_format = image.format
+            rgba = image.convert("RGBA")
+    except Exception as exc:
+        raise LogoError("Не смог открыть файл как картинку. Пришли PNG с прозрачным фоном.") from exc
+
+    if image_format != "PNG":
+        raise LogoError(f"Нужен PNG с прозрачным фоном, а пришел {image_format or 'другой формат'}.")
+    min_alpha, max_alpha = rgba.getchannel("A").getextrema()
+    if min_alpha == 255:
+        raise LogoError("У логотипа нет прозрачного фона — он закроет всё фото. Нужен PNG с прозрачностью.")
+    if max_alpha == 0:
+        raise LogoError("Картинка полностью прозрачная — на ней нет логотипа.")
+    return LogoInfo(*rgba.size)
+
+
+def _preview_background(size: tuple[int, int]) -> Image.Image:
+    # Mid-grey checkerboard: both white and dark logos stay visible on it.
+    width, height = size
+    image = Image.new("RGBA", size, "#8a8f98")
+    draw = ImageDraw.Draw(image)
+    cell = 90
+    for y in range(0, height, cell):
+        for x in range(0, width, cell):
+            if (x // cell + y // cell) % 2:
+                draw.rectangle((x, y, x + cell - 1, y + cell - 1), fill="#5d626b")
+    return image
+
+
+def render_preview(logo_bytes: bytes) -> bytes:
+    base = _preview_background(OUTPUT_SIZE)
+    with Image.open(BytesIO(logo_bytes)) as overlay:
+        base.alpha_composite(_place_overlay(overlay.convert("RGBA"), OUTPUT_SIZE))
+    out = BytesIO()
+    base.convert("RGB").save(out, format="JPEG", quality=88)
+    return out.getvalue()
 
 
 def _cover_crop(image: Image.Image, target_size: tuple[int, int]) -> Image.Image:
@@ -67,12 +122,14 @@ def _place_overlay(overlay: Image.Image, target_size: tuple[int, int]) -> Image.
     return canvas
 
 
-def render_overlay(source_bytes: bytes, overlay_path: Path) -> tuple[bytes, str, str]:
+def render_overlay(source_bytes: bytes, overlay_source: Path | bytes) -> tuple[bytes, str, str]:
     with Image.open(BytesIO(source_bytes)) as source:
         source = ImageOps.exif_transpose(source)
         base = _cover_crop(_normalize_to_srgb(source), OUTPUT_SIZE)
 
-    with Image.open(overlay_path) as overlay:
+    if isinstance(overlay_source, bytes):
+        overlay_source = BytesIO(overlay_source)
+    with Image.open(overlay_source) as overlay:
         overlay = _place_overlay(overlay.convert("RGBA"), OUTPUT_SIZE)
         base.alpha_composite(overlay)
 

@@ -4,16 +4,33 @@ import json
 import mimetypes
 import traceback
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any
 
-from .config import BOT_TOKEN, MAX_INPUT_MB, OUTPUT_FORMAT, OUTPUT_QUALITY, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, get_channel
+from .add_project import (
+    ADD_COMMANDS,
+    ADD_PHRASES,
+    DELETE_COMMANDS,
+    DELETE_PHRASES,
+    drop_dialog,
+    handle_dialog_message,
+    handle_project_callback,
+    normalize_phrase,
+    start_add,
+    start_delete,
+)
+from .config import BOT_TOKEN, MAX_INPUT_MB, OUTPUT_FORMAT, OUTPUT_QUALITY, TOO_LARGE_MESSAGE, WEBHOOK_SECRET, Channel, LogoOption
 from .image_processing import render_overlay
-from .keyboards import again_menu, channel_label, channel_menu, option_label, option_menu
+from .keyboards import again_menu, channel_menu, option_menu, start_menu
+from .projects import find_channel, slugify, storage_status
 from .state_store import get_state_store, new_record_id
 from .telegram_api import TelegramClient, TelegramError
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+# Logos added through the bot are downloaded from Telegram; keep them per warm instance.
+_OVERLAY_CACHE: dict[str, bytes] = {}
+_OVERLAY_CACHE_LIMIT = 32
 
 
 def _json_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any], status: int = 200) -> None:
@@ -49,25 +66,37 @@ def _help_text() -> str:
     return (
         "Пришли фото файлом без сжатия: скрепка → Файл. "
         "После загрузки выбери канал и вариант логотипа.\n\n"
-        f"Сейчас бот принимает файлы до {MAX_INPUT_MB} MB и приводит результат к 4:5."
+        f"Сейчас бот принимает файлы до {MAX_INPUT_MB} MB и приводит результат к 4:5.\n\n"
+        "Новый проект со своими логотипами — кнопка «➕ Добавить проект» или просто напиши «добавить проект»."
     )
 
 
 def _handle_message(message: dict[str, Any], tg: TelegramClient) -> None:
     chat_id = int((message.get("chat") or {})["id"])
+    user = message.get("from") or {}
     text = (message.get("text") or message.get("caption") or "").strip()
     command = text.split(" ", 1)[0].lower() if text else ""
     if "@" in command:
         command = command.split("@", 1)[0]
+    phrase = normalize_phrase(str(message.get("text") or ""))
 
+    if command in ADD_COMMANDS or phrase in ADD_PHRASES:
+        start_add(chat_id, user, tg)
+        return
+    if command in DELETE_COMMANDS or phrase in DELETE_PHRASES:
+        start_delete(chat_id, user, tg)
+        return
     if command in {"/start", "/help", "start", "help"}:
+        drop_dialog(chat_id, user)
         tg.set_my_commands()
-        tg.send_message(chat_id, _help_text())
+        tg.send_message(chat_id, _help_text(), reply_markup=start_menu())
+        return
+    if handle_dialog_message(message, tg):
         return
 
     image = _extract_image_file(message)
     if not image:
-        tg.send_message(chat_id, _help_text())
+        tg.send_message(chat_id, _help_text(), reply_markup=start_menu())
         return
 
     file_id, file_size, is_document = image
@@ -98,7 +127,7 @@ def _handle_channel_choice(chat_id: int, message_id: int, record_id: str, channe
         tg.edit_message_text(chat_id, message_id, "Сессия истекла. Пришли фото еще раз.")
         return
 
-    channel = get_channel(channel_key)
+    channel = find_channel(channel_key)
     if not channel:
         tg.edit_message_text(chat_id, message_id, "Не нашел такой канал. Выбери заново.", reply_markup=channel_menu(record_id))
         return
@@ -119,6 +148,24 @@ def _handle_channel_choice(chat_id: int, message_id: int, record_id: str, channe
     )
 
 
+def _overlay_source(option: LogoOption, tg: TelegramClient) -> Path | bytes:
+    if not option.file_id:
+        return option.path
+    cached = _OVERLAY_CACHE.get(option.file_id)
+    if cached is None:
+        cached = tg.download_file(option.file_id)
+        if len(_OVERLAY_CACHE) >= _OVERLAY_CACHE_LIMIT:
+            _OVERLAY_CACHE.clear()
+        _OVERLAY_CACHE[option.file_id] = cached
+    return cached
+
+
+def _output_stem(channel: Channel, option: LogoOption) -> str:
+    if channel.custom:
+        return f"{slugify(channel.label)}_{slugify(option.label)}"
+    return f"{channel.key}_{option.key}"
+
+
 def _handle_option_choice(
     chat_id: int,
     message_id: int,
@@ -132,27 +179,28 @@ def _handle_option_choice(
         tg.edit_message_text(chat_id, message_id, "Сессия истекла. Пришли фото еще раз.")
         return
 
-    channel = get_channel(channel_key)
+    channel = find_channel(channel_key)
     if not channel or not channel.is_ready:
         tg.edit_message_text(chat_id, message_id, "Этот логотип пока недоступен.", reply_markup=channel_menu(record_id))
         return
 
     option = channel.logo_option(option_key)
-    overlay_path = option.path if option else None
-    if not option or not overlay_path.exists():
+    if not option or not option.is_available:
         tg.edit_message_text(chat_id, message_id, "Не нашел такой вариант логотипа.", reply_markup=option_menu(record_id, channel_key))
         return
 
     tg.edit_message_text(chat_id, message_id, "Генерирую картинку...")
     source = tg.download_file(str(record["file_id"]))
-    result, ext, mime = render_overlay(source, overlay_path)
-    filename = f"{channel_key}_{option_key}_4x5.{ext}"
-    caption = f"Готово: {channel_label(channel_key)}, {option_label(channel_key, option_key)}"
+    result, ext, mime = render_overlay(source, _overlay_source(option, tg))
+    filename = f"{_output_stem(channel, option)}_4x5.{ext}"
+    caption = f"Готово: {channel.label}, {option.label.lower()}"
     tg.send_document(chat_id, result, filename, mime, caption=caption)
     tg.send_message(chat_id, "Можно сделать еще один вариант с этим же фото.", reply_markup=again_menu(record_id))
 
 
 def _handle_callback(callback: dict[str, Any], tg: TelegramClient) -> None:
+    if handle_project_callback(callback, tg):
+        return
     query_id = str(callback.get("id") or "")
     message = callback.get("message") or {}
     chat_id = int((message.get("chat") or {})["id"])
@@ -209,6 +257,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 "output_format": OUTPUT_FORMAT,
                 "output_quality": OUTPUT_QUALITY,
                 "max_input_mb": MAX_INPUT_MB,
+                **storage_status(),
             },
         )
 
