@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .config import CHANNELS, Channel, LogoOption
-from .state_store import get_state_store
+from .state_store import get_state_store, storage_env_names
 
 
 PROJECTS_KEY = "projects:v1"
@@ -165,7 +165,7 @@ def delete_project(key: str, author: str) -> dict[str, Any] | None:
 
 def storage_status() -> dict[str, Any]:
     store = get_state_store()
-    status: dict[str, Any] = {"storage": store.backend}
+    status: dict[str, Any] = {"storage": store.backend, "storage_env": storage_env_names()}
     try:
         status["custom_projects"] = len(load_project_records(store))
     except Exception as exc:

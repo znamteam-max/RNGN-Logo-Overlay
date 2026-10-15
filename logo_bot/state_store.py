@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from .config import STATE_TTL_SECONDS
 
@@ -106,17 +108,43 @@ class UpstashStateStore:
 
 
 _memory_store = MemoryStateStore()
+_STORAGE_ENV_PATTERN = re.compile(r"REDIS|UPSTASH|^KV_|_REST_API_")
+
+
+def storage_env_names() -> list[str]:
+    """Names (never values) of env vars that look like Redis settings — for /api/health."""
+    return sorted(name for name in os.environ if _STORAGE_ENV_PATTERN.search(name))
+
+
+def _redis_rest_credentials() -> tuple[str, str]:
+    for url_name, token_name in (
+        ("UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"),
+        ("KV_REST_API_URL", "KV_REST_API_TOKEN"),
+    ):
+        url = os.getenv(url_name, "").strip()
+        token = os.getenv(token_name, "").strip()
+        if url and token:
+            return url, token
+
+    # Vercel Marketplace lets the prefix be renamed: <PREFIX>_REST_API_URL / <PREFIX>_REST_API_TOKEN.
+    for name in sorted(os.environ):
+        if name.endswith("_REST_API_URL"):
+            url = os.environ[name].strip()
+            token = os.getenv(name.removesuffix("URL") + "TOKEN", "").strip()
+            if url and token:
+                return url, token
+
+    # Only a redis:// URL: Upstash serves REST on the same host, the password is the REST token.
+    for name in sorted(os.environ):
+        if name.endswith("REDIS_URL") or name.endswith("KV_URL"):
+            parsed = urlparse(os.environ[name].strip())
+            if parsed.hostname and parsed.hostname.endswith(".upstash.io") and parsed.password:
+                return f"https://{parsed.hostname}", parsed.password
+    return "", ""
 
 
 def get_state_store() -> MemoryStateStore | UpstashStateStore:
-    url = (
-        os.getenv("UPSTASH_REDIS_REST_URL", "").strip()
-        or os.getenv("KV_REST_API_URL", "").strip()
-    )
-    token = (
-        os.getenv("UPSTASH_REDIS_REST_TOKEN", "").strip()
-        or os.getenv("KV_REST_API_TOKEN", "").strip()
-    )
+    url, token = _redis_rest_credentials()
     if url and token:
         try:
             return UpstashStateStore(url, token)
